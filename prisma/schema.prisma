@@ -1,0 +1,111 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String        @id @default(uuid())
+  firstName        String
+  lastName         String
+  email            String        @unique
+  password         String
+  salt             String
+  avatar           String?       @map("user_avatar")
+  bookrequests     BookRequest[] @relation(name: "bookRequestOwner")
+  boughtBooks      BookRequest[] @relation(name: "bookBuyer")
+  sentMessages     Message[]     @relation(name: "sentMessages")
+  receivedMessages Message[]     @relation(name: "receivedMessages")
+  wishlist         Wishlist[]
+  createdAt        DateTime      @default(now())
+  bookRequestId    String?
+
+  @@map("users")
+}
+
+model BookRequest {
+  id            String        @id @default(uuid())
+  title         String
+  author        String
+  ownerId       String
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade, name: "bookRequestOwner")
+  media         String[]
+  status        RequestStatus @default(PENDING)
+  genre         Genre
+  buyerId       String?
+  buyer         User?         @relation(fields: [buyerId], references: [id], name: "bookBuyer")
+  createdAt     DateTime      @default(now())
+  allowMessages Boolean       @default(true)
+  wishListedBy  Wishlist[]
+
+  @@map("book_requests")
+}
+
+model Wishlist {
+  userId        String
+  bookRequestId String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookRequest   BookRequest @relation(fields: [bookRequestId], references: [id], onDelete: Cascade)
+
+  @@id([userId, bookRequestId]) // Composite primary key to avoid duplicates
+  @@map("wishlist")
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  CANCELED
+}
+
+enum Genre {
+  FICTION
+  NON_FICTION
+  MYSTERY
+  FANTASY
+  SCIENCE_FICTION
+  ROMANCE
+  THRILLER
+  HORROR
+  HISTORY
+  BIOGRAPHY
+  SELF_HELP
+  POETRY
+  BUSINESS
+  RELIGION
+  ART
+  GRAPHIC_NOVEL
+  CHILDREN
+  YOUNG_ADULT
+  EDUCATIONAL
+  CLASSICS
+  PHILOSOPHY
+  HEALTH
+  COOKING
+  TRAVEL
+  SPORTS
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String
+  content    String
+  timestamp  DateTime @default(now())
+  isRead     Boolean  @default(false)
+  roomId     String
+
+  sender   User @relation(fields: [senderId], references: [id], name: "sentMessages", onDelete: Cascade)
+  receiver User @relation(fields: [receiverId], references: [id], name: "receivedMessages", onDelete: Cascade)
+
+  @@map("messages")
+}
