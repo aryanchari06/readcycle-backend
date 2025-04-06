@@ -7,7 +7,7 @@ import cookieParser from "cookie-parser";
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
 import { useServer } from "graphql-ws/lib/use/ws";
-import cors from 'cors'
+import cors from "cors";
 
 dotenv.config();
 
@@ -17,10 +17,12 @@ async function init() {
 
   const httpServer = createServer(app);
 
-  app.use(cors({
-    origin: "http://localhost:3000", // Allow requests from your frontend
-    credentials: true // Allow cookies if needed
-  }));
+  app.use(
+    cors({
+      origin: "http://localhost:3000", // Allow requests from your frontend
+      credentials: true, // Allow cookies if needed
+    })
+  );
 
   app.get("/", (req, res) => {
     res.end("Hi from server");
@@ -30,26 +32,26 @@ async function init() {
   app.use(cookieParser());
 
   const { gqlServer, schema } = await createApolloServer();
-  app.use(
-    "/graphql",
-    expressMiddleware(gqlServer, {
-      context: async ({ req, res }) => {
-        const token = await req.cookies.token; // Read token from cookies
-        // console.log(req.cookies);
-        // console.log('token:', token)
 
-        if (!token) return { user: null, res };
+  //@ts-ignore
+  const graphqlMiddleware = await expressMiddleware(gqlServer, {
+    context: async ({ req, res }) => {
+      const token = req.cookies.token;
 
-        try {
-          const user = await UserServices.decodeJWTToken(token);
-          req.headers["sec-websocket-protocol"] = token;
-          return { user, res };
-        } catch (error) {
-          return { user: null, res };
-        }
-      },
-    })
-  );
+      if (!token) return { user: null, res };
+
+      try {
+        const user = await UserServices.decodeJWTToken(token);
+        req.headers["sec-websocket-protocol"] = token;
+        return { user, res };
+      } catch (error) {
+        return { user: null, res };
+      }
+    },
+  });
+
+  //@ts-ignore
+  app.use("/graphql", graphqlMiddleware);
 
   const wsServer = new WebSocketServer({
     server: httpServer,
@@ -60,17 +62,21 @@ async function init() {
     {
       schema,
       context: async (ctx) => {
-        const req = ctx.extra.request; // Access the WebSocket request object
-        // console.log(req.headers.cookie?.slice(6))
+        const req = ctx.extra.request;
+        const cookieHeader = req.headers.cookie;
 
+        let token = null;
 
-        // const token = req.headers["sec-websocket-protocol"]; // Read token
-        const rawToken = req.headers.cookie?.slice(6); // Read token
-        // console.log(rawToken)
-        const tempToken = rawToken?.split(";")
-        // @ts-ignore
-        const token = tempToken[0]
-        // console.log("Token: ", token)
+        if (cookieHeader) {
+          const cookies = Object.fromEntries(
+            cookieHeader.split(";").map((cookie) => {
+              const [key, value] = cookie.trim().split("=");
+              return [key, value];
+            })
+          );
+          token = cookies.token;
+        }
+
         if (!token) return { user: null };
 
         try {
