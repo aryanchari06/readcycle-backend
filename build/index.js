@@ -21,12 +21,17 @@ const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const ws_1 = require("ws");
 const http_1 = require("http");
 const ws_2 = require("graphql-ws/lib/use/ws");
+const cors_1 = __importDefault(require("cors"));
 dotenv_1.default.config();
 function init() {
     return __awaiter(this, void 0, void 0, function* () {
         const app = (0, express_1.default)();
         const PORT = process.env.PORT || 8000;
         const httpServer = (0, http_1.createServer)(app);
+        app.use((0, cors_1.default)({
+            origin: "http://localhost:3000", // Allow requests from your frontend
+            credentials: true // Allow cookies if needed
+        }));
         app.get("/", (req, res) => {
             res.end("Hi from server");
         });
@@ -57,12 +62,16 @@ function init() {
         (0, ws_2.useServer)({
             schema,
             context: (ctx) => __awaiter(this, void 0, void 0, function* () {
-                var _a, _b;
+                var _a;
                 const req = ctx.extra.request; // Access the WebSocket request object
-                console.log((_a = req.headers.cookie) === null || _a === void 0 ? void 0 : _a.slice(6));
+                // console.log(req.headers.cookie?.slice(6))
                 // const token = req.headers["sec-websocket-protocol"]; // Read token
-                const token = (_b = req.headers.cookie) === null || _b === void 0 ? void 0 : _b.slice(6); // Read token
-                console.log("Token: ", token);
+                const rawToken = (_a = req.headers.cookie) === null || _a === void 0 ? void 0 : _a.slice(6); // Read token
+                // console.log(rawToken)
+                const tempToken = rawToken === null || rawToken === void 0 ? void 0 : rawToken.split(";");
+                // @ts-ignore
+                const token = tempToken[0];
+                // console.log("Token: ", token)
                 if (!token)
                     return { user: null };
                 try {

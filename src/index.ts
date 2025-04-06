@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
 import { useServer } from "graphql-ws/lib/use/ws";
+import cors from 'cors'
 
 dotenv.config();
 
@@ -15,6 +16,11 @@ async function init() {
   const PORT = process.env.PORT || 8000;
 
   const httpServer = createServer(app);
+
+  app.use(cors({
+    origin: "http://localhost:3000", // Allow requests from your frontend
+    credentials: true // Allow cookies if needed
+  }));
 
   app.get("/", (req, res) => {
     res.end("Hi from server");
@@ -55,12 +61,16 @@ async function init() {
       schema,
       context: async (ctx) => {
         const req = ctx.extra.request; // Access the WebSocket request object
-        console.log(req.headers.cookie?.slice(6))
+        // console.log(req.headers.cookie?.slice(6))
 
 
         // const token = req.headers["sec-websocket-protocol"]; // Read token
-        const token = req.headers.cookie?.slice(6); // Read token
-        console.log("Token: ", token)
+        const rawToken = req.headers.cookie?.slice(6); // Read token
+        // console.log(rawToken)
+        const tempToken = rawToken?.split(";")
+        // @ts-ignore
+        const token = tempToken[0]
+        // console.log("Token: ", token)
         if (!token) return { user: null };
 
         try {

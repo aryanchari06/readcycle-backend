@@ -24,11 +24,14 @@
     "graphql-tag": "^2.12.6",
     "graphql-ws": "^5.5.5",
     "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.10.0",
     "ws": "^8.18.1"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
     "@types/jsonwebtoken": "^9.0.9",
+    "@types/nodemailer": "^6.4.17",
     "@types/ws": "^8.5.14",
     "prisma": "^6.4.1",
     "ts-node": "^10.9.2",

@@ -16,6 +16,7 @@ const db_1 = require("../lib/db");
 const node_crypto_1 = require("node:crypto");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const client_1 = require("@prisma/client");
+const nodemailer_1 = require("../lib/nodemailer");
 class UserServices {
     static getAllUsers() {
         return db_1.prismaClient.user.findMany();
@@ -33,6 +34,10 @@ class UserServices {
     static createUser(payload) {
         return __awaiter(this, void 0, void 0, function* () {
             const { firstName, lastName, email, password, avatar } = payload;
+            const user = yield UserServices.getUserByEmail(email);
+            if (user === null || user === void 0 ? void 0 : user.id)
+                throw new Error("User already exists");
+            const verifyCode = Math.floor(Math.random() * 900000 + 100000).toString();
             const salt = (0, node_crypto_1.randomBytes)(32).toString("hex");
             const hashedPassword = UserServices.hashPassword(password, salt);
             try {
@@ -46,16 +51,35 @@ class UserServices {
                         password: hashedPassword,
                         avatar,
                         salt,
+                        verifyCode,
+                        isVerified: false,
                     },
                 });
                 if (!user)
                     throw new Error("User creation failed unexpectedly.");
+                const sentVerificationEmail = yield (0, nodemailer_1.sendVerificationEmail)(firstName, email, verifyCode);
+                console.log("verificationemail data:", sentVerificationEmail);
+                if (!sentVerificationEmail.ok)
+                    throw new Error("Failed to send verification email to the user");
                 return user.id;
             }
             catch (error) {
                 console.log("Error while creating user: ", error);
                 throw new Error("Failed to create new user");
             }
+        });
+    }
+    static verifyUser(payload) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const { email, verifyCode } = payload;
+            const user = yield UserServices.getUserByEmail(email);
+            if ((user === null || user === void 0 ? void 0 : user.verifyCode) !== verifyCode)
+                throw new Error("Incorrect Verification Code");
+            const verifiedUser = yield db_1.prismaClient.user.update({
+                where: { email },
+                data: { isVerified: true },
+            });
+            return verifiedUser.id;
         });
     }
     static getUserByEmail(email) {
@@ -75,20 +99,32 @@ class UserServices {
                 throw new Error("Incorrect password");
             if (!process.env.AUTH_SECRET)
                 throw new Error("Auth secret is missing");
-            const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email }, process.env.AUTH_SECRET, { expiresIn: "1d" });
+            const token = jsonwebtoken_1.default.sign({
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                isVerified: user.isVerified,
+                avatar: user.avatar,
+            }, process.env.AUTH_SECRET, { expiresIn: "1d" });
             return token;
         });
     }
     static getUserById(userId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const user = yield db_1.prismaClient.user.findUnique({ where: { id: userId } });
+            const user = yield db_1.prismaClient.user.findUnique({
+                where: { id: userId },
+                include: {
+                    bookrequests: true,
+                },
+            });
             return user;
         });
     }
     static createBookRequest(payload, userId) {
         return __awaiter(this, void 0, void 0, function* () {
-            const { title, author, genre, media } = payload;
-            if (!title || !genre || !media)
+            const { title, author, genre, media, description, price } = payload;
+            if (!title || !genre || !media || !description)
                 throw new Error("All fields are required");
             const genreEnum = genre;
             // Validate that the genre is a valid enum value
@@ -96,13 +132,17 @@ class UserServices {
                 throw new Error(`Invalid genre: ${genre}`);
             }
             try {
+                const otp = Math.floor(Math.random() * 900000 + 100000).toString();
                 const request = yield db_1.prismaClient.bookRequest.create({
                     data: {
                         title,
                         author,
                         ownerId: userId,
                         genre: genreEnum,
+                        description,
                         media,
+                        otp,
+                        price,
                     },
                 });
                 return request.id;
@@ -113,13 +153,38 @@ class UserServices {
             }
         });
     }
-    static acceptBookRequest(requestId, buyerId) {
+    static approveBookRequest(requestId, buyerId, deliverTo, otp) {
         return __awaiter(this, void 0, void 0, function* () {
             if (!requestId)
                 throw new Error("Request ID is missing!");
             const updatedRequest = yield db_1.prismaClient.bookRequest.update({
                 where: { id: requestId },
-                data: { status: "APPROVED", buyerId },
+                data: { status: "APPROVED", buyerId, deliverTo },
+            });
+            if (!updatedRequest)
+                throw new Error("Failed to update request");
+            const user = yield UserServices.getUserById(buyerId);
+            if (!user)
+                throw new Error("User not found");
+            const sentEmail = yield (0, nodemailer_1.sendRequestApprovalEmail)(user.firstName, user.email, otp, deliverTo, updatedRequest.title);
+            console.log("verificationemail data:", sentEmail);
+            if (!sentEmail.ok)
+                throw new Error("Failed to send approval email to the user");
+            return updatedRequest;
+        });
+    }
+    static confirmRequest(bookRequestId, otp, userId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const bookrequest = yield UserServices.getBookRequestById(bookRequestId);
+            if (!bookrequest)
+                throw new Error("Book does not exist");
+            if (userId !== bookrequest.buyerId)
+                throw new Error("Invalid buyer id");
+            if (bookrequest.otp !== otp)
+                throw new Error("Incorrect OTP");
+            const updatedRequest = yield db_1.prismaClient.bookRequest.update({
+                where: { id: bookRequestId },
+                data: { status: "ONGOING" },
             });
             return updatedRequest;
         });
@@ -169,6 +234,10 @@ class UserServices {
                     senderId,
                     roomId,
                 },
+                include: {
+                    receiver: true,
+                    sender: true,
+                },
             });
             return message;
         });
@@ -187,10 +256,28 @@ class UserServices {
                     cursor: { id: lastMessageId },
                     skip: 1,
                 })), { include: {
-                        sender: { select: { email: true, firstName: true, avatar: true } },
-                        receiver: { select: { email: true, firstName: true, avatar: true } },
+                        sender: {
+                            select: {
+                                email: true,
+                                firstName: true,
+                                avatar: true,
+                                id: true,
+                                lastName: true,
+                            },
+                        },
+                        receiver: {
+                            select: {
+                                email: true,
+                                firstName: true,
+                                avatar: true,
+                                id: true,
+                                lastName: true,
+                            },
+                        },
                     } }));
-                return roomMessages.length > 0 ? { roomId, messages: roomMessages } : null;
+                return roomMessages.length > 0
+                    ? { roomId, messages: roomMessages }
+                    : null;
             })));
             return messages.filter(Boolean);
         });
@@ -204,6 +291,80 @@ class UserServices {
             if (!updatedRequest)
                 throw new Error("There was an error while updating the request");
             return "Delivery complete!";
+        });
+    }
+    static viewUserWishlist(userId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const books = yield db_1.prismaClient.bookRequest.findMany({
+                where: { wishListedBy: { some: { userId } } },
+                include: {
+                    owner: true,
+                },
+            });
+            if (!books)
+                throw new Error("Something went wrong while fetching user wishlist");
+            return books;
+        });
+    }
+    static addToWishlist(userId, bookRequestId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const addedBook = yield db_1.prismaClient.wishlist.create({
+                data: { userId, bookRequestId },
+            });
+            if (!addedBook)
+                throw new Error("Failed to add book to wishlist");
+            return addedBook;
+        });
+    }
+    static removeFromWishlist(userId, bookRequestId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const removedBook = yield db_1.prismaClient.wishlist.delete({
+                where: {
+                    userId_bookRequestId: {
+                        userId: userId,
+                        bookRequestId: bookRequestId,
+                    },
+                },
+            });
+            if (!removedBook)
+                throw new Error("Failed to add book to wishlist");
+            return removedBook;
+        });
+    }
+    static updateAvatar(userId, imgUrl) {
+        return __awaiter(this, void 0, void 0, function* () {
+            console.log("img from service: ", imgUrl);
+            const updatedUser = yield db_1.prismaClient.user.update({
+                where: {
+                    id: userId,
+                },
+                data: {
+                    avatar: imgUrl,
+                },
+            });
+            return updatedUser;
+        });
+    }
+    static getRoomMessages(roomId, page) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // const page = Number(req.query.page) || 1; // current page number
+            const limit = 10; // messages per page
+            const offset = (page - 1) * limit;
+            const messages = yield db_1.prismaClient.message.findMany({
+                where: { roomId },
+                include: {
+                    sender: true,
+                    receiver: true,
+                },
+                orderBy: {
+                    timestamp: "desc", // fetch latest messages first
+                },
+                skip: offset,
+                take: limit,
+            });
+            if (!messages)
+                throw new Error("Failed to fetch room messages");
+            return messages;
         });
     }
 }

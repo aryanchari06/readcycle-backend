@@ -27,7 +27,8 @@ model User {
   receivedMessages Message[]     @relation(name: "receivedMessages")
   wishlist         Wishlist[]
   createdAt        DateTime      @default(now())
-  bookRequestId    String?
+  isVerified       Boolean       @default(false)
+  verifyCode       String
 
   @@map("users")
 }
@@ -36,6 +37,7 @@ model BookRequest {
   id            String        @id @default(uuid())
   title         String
   author        String
+  description   String
   ownerId       String
   owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade, name: "bookRequestOwner")
   media         String[]
@@ -46,6 +48,9 @@ model BookRequest {
   createdAt     DateTime      @default(now())
   allowMessages Boolean       @default(true)
   wishListedBy  Wishlist[]
+  deliverTo     String?
+  otp           String
+  price         Int
 
   @@map("book_requests")
 }
@@ -63,6 +68,7 @@ model Wishlist {
 enum RequestStatus {
   PENDING
   APPROVED
+  ONGOING
   COMPLETED
   CANCELED
 }

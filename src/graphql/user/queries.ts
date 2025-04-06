@@ -6,4 +6,7 @@ export const queries = ` #graphql
     getBookRequest(bookRequestId: String!): BookRequest
     getUserMessages(userId: String!): [RoomMessages]
     viewWishlist: [BookRequest!]
+    getUserById(userId: String!) : User
+    getRoomMessages(roomId: String!, page: Int!): [Message]
+    getUserRoomIds: [RoomId]
 `

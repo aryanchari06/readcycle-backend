@@ -6,6 +6,7 @@ exports.typeDefs = ` #graphql
     PENDING
     APPROVED
     COMPLETED
+    ONGOING
     CANCELED
   }
 
@@ -43,16 +44,19 @@ exports.typeDefs = ` #graphql
     lastName: String!
     email: String!
     avatar: String
-    bookrequests: [BookRequest!]!
+    bookrequests: [BookRequest]
     sentMessages: [Message!]!
     receivedMessages: [Message!]!
     createdAt: String!
+    isVerified: Boolean
+    verifyCode: String!
   }
 
   type BookRequest {
     id: ID!
     title: String!
     author: String!
+    description: String
     owner: User!
     media: [String!]!
     status: RequestStatus!
@@ -61,6 +65,9 @@ exports.typeDefs = ` #graphql
     buyer: User
     buyerId: String
     allowMessages: Boolean!
+    otp:String!
+    deliverTo: String
+    price: Int!
   }
 
   type Message {
@@ -80,5 +87,13 @@ exports.typeDefs = ` #graphql
     messages: [Message]
   }
 
+  type Wishlist {
+    userId: String
+    bookRequestId: String
+  }
+
+  type RoomId {
+    roomId: String
+  }
   
 `;

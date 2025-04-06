@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolvers = void 0;
 const graphql_subscriptions_1 = require("graphql-subscriptions");
 const services_1 = __importDefault(require("../../services"));
+const nodemailer_1 = require("../../lib/nodemailer");
 const pubsub = new graphql_subscriptions_1.PubSub();
 //queries
 const resolverQueries = {
@@ -23,10 +24,10 @@ const resolverQueries = {
         return users;
     }),
     getCurrentUser: (_, params, context) => __awaiter(void 0, void 0, void 0, function* () {
-        console.log("context:", context.user);
+        // console.log("context:", context.user);
         if (context && context.user) {
             const user = yield services_1.default.getUserById(context.user.id);
-            console.log("Context", context.user);
+            // console.log("Context", context.user);
             return user;
         }
         throw new Error("Could not find user ");
@@ -38,8 +39,8 @@ const resolverQueries = {
         });
         // console.log(token);
         res.cookie("token", token, {
-            httpOnly: true, // Prevent access from JavaScript
-            // secure: false, // Use HTTPS in production
+            httpOnly: false, // Prevent access from JavaScript
+            secure: false, // Use HTTPS in production
             sameSite: "strict", // CSRF protection
             maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
         });
@@ -64,12 +65,37 @@ const resolverQueries = {
             throw new Error("Failed to fetched user messages");
         return messages;
     }),
+    viewWishlist: (_, parameters, context) => __awaiter(void 0, void 0, void 0, function* () {
+        if (!context || !context.user)
+            throw new Error("User not authorised");
+        const list = yield services_1.default.viewUserWishlist(context.user.id);
+        return list;
+    }),
+    getUserById: (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { userId }) {
+        const user = yield services_1.default.getUserById(userId);
+        return user;
+    }),
+    getRoomMessages: (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { roomId, page }) {
+        const messages = yield services_1.default.getRoomMessages(roomId, page);
+        // console.log(messages)
+        return messages;
+    }),
+    getUserRoomIds: (_, parameters, context) => __awaiter(void 0, void 0, void 0, function* () {
+        if (!context || !context.user)
+            throw new Error("User unauthorized!");
+        const roomIds = yield services_1.default.getUserRoomIds(context.user.id);
+        return roomIds;
+    }),
 };
 //mutations
 const resolverMutations = {
     createUser: (_, payload) => __awaiter(void 0, void 0, void 0, function* () {
         const user = yield services_1.default.createUser(payload);
         return user;
+    }),
+    verifyUser: (_, payload) => __awaiter(void 0, void 0, void 0, function* () {
+        const verifiedUser = yield services_1.default.verifyUser(payload);
+        return verifiedUser;
     }),
     signOut: (_1, parameters_1, _a) => __awaiter(void 0, [_1, parameters_1, _a], void 0, function* (_, parameters, { res }) {
         res.clearCookie("token", {
@@ -87,25 +113,76 @@ const resolverMutations = {
         else
             throw new Error("No user logged in");
     }),
-    acceptBookRequest: (_1, _a, context_1) => __awaiter(void 0, [_1, _a, context_1], void 0, function* (_, { bookRequestId }, context) {
-        const updatedRequest = yield services_1.default.acceptBookRequest(bookRequestId, context.user.id);
+    approveBookRequest: (_1, _a, context_1) => __awaiter(void 0, [_1, _a, context_1], void 0, function* (_, { bookRequestId, deliverTo, otp, }, context) {
+        if (!context || !context.user)
+            throw new Error("User not authorised");
+        const updatedRequest = yield services_1.default.approveBookRequest(bookRequestId, context.user.id, deliverTo, otp);
         if (!updatedRequest)
             throw new Error("Failed to update book request");
         return "Request accepted successfully!";
+    }),
+    confirmBookRequest: (_1, _a, context_1) => __awaiter(void 0, [_1, _a, context_1], void 0, function* (_, { bookRequestId, otp }, context) {
+        if (!context || !context.user)
+            throw new Error("User not authorized!");
+        const updatedRequest = yield services_1.default.confirmRequest(bookRequestId, otp, context.user.id);
+        const bookOwner = yield services_1.default.getUserById(updatedRequest.ownerId);
+        if (bookOwner && updatedRequest) {
+            const sentMail = yield (0, nodemailer_1.sendBuyerRequestConfirmationEmail)(bookOwner === null || bookOwner === void 0 ? void 0 : bookOwner.firstName, context.user.firstName + context.user.lastName, context.user.id, 
+            //@ts-ignore
+            updatedRequest.deliverTo, updatedRequest.title, bookOwner === null || bookOwner === void 0 ? void 0 : bookOwner.email);
+            if (!sentMail)
+                throw new Error("Something wrong happened while sending book owner email");
+        }
+        return "Order confirmed";
     }),
     sendMessage: (_, payload) => __awaiter(void 0, void 0, void 0, function* () {
         const message = yield services_1.default.sendMessage(payload);
         if (!message.id)
             throw new Error("Message not sent");
+        // pubsub.publish(`ROOM_${message.roomId}`, { newMessage: message });
         pubsub.publish(`ROOM_${message.roomId}`, { newMessage: message });
-        return `Message sent!`;
+        console.log(`message published to ROOM_${message.roomId}`);
+        return message;
     }),
     completeDelivery: (_1, _a, context_1) => __awaiter(void 0, [_1, _a, context_1], void 0, function* (_, { bookRequestId }, context) {
         if (!context || !context.user)
             throw new Error("User not authorised");
         return services_1.default.completeDelivery(bookRequestId);
     }),
+    addToWishlist: (_1, _a, context_1) => __awaiter(void 0, [_1, _a, context_1], void 0, function* (_, { bookRequestId }, context) {
+        if (!bookRequestId)
+            throw new Error("Book request ID is missing");
+        if (!context || !context.user)
+            throw new Error("User not authorised");
+        const addedBook = yield services_1.default.addToWishlist(context.user.id, bookRequestId);
+        console.log(addedBook);
+        return "Book added to playlist!";
+    }),
+    removeFromWishlist: (_1, _a, context_1) => __awaiter(void 0, [_1, _a, context_1], void 0, function* (_, { bookRequestId }, context) {
+        if (!bookRequestId)
+            throw new Error("Book request ID is missing");
+        if (!context || !context.user)
+            throw new Error("User not authorised");
+        const addedBook = services_1.default.removeFromWishlist(context.user.id, bookRequestId);
+        return "Book removed from playlist!";
+    }),
+    updateUserAvatar: (_1, _a, context_1) => __awaiter(void 0, [_1, _a, context_1], void 0, function* (_, { imgUrl }, context) {
+        console.log("img from resolver: ", imgUrl);
+        if (context && context.user) {
+            try {
+                const updatedUser = yield services_1.default.updateAvatar(context.user.id, imgUrl);
+                if (!updatedUser)
+                    throw new Error("Failed to update user avatar");
+                return "User avatar updated successfully!";
+            }
+            catch (error) {
+                console.log("Error while updating user avatar: ", error);
+                return "Could not update user avatar";
+            }
+        }
+    }),
 };
+//subscriptions
 const resolverSubscriptions = {
     //notifying room members of new message
     newMessage: {
@@ -113,11 +190,13 @@ const resolverSubscriptions = {
             if (!context && !context.user)
                 throw new Error("user is not authenticated");
             const rooms = yield services_1.default.getUserRoomIds(context.user.id);
+            console.log("subscribing to all rooms");
             const iterators = rooms.map((room) => pubsub.asyncIterableIterator(`ROOM_${room.roomId}`));
             return mergeAsyncIterators(iterators);
         }), (payload, _, context) => __awaiter(void 0, void 0, void 0, function* () {
             if (!context && !context.user)
                 throw new Error("user is not authenticated");
+            // console.log("message", payload);
             const rooms = yield services_1.default.getUserRoomIds(context.user.id);
             return rooms.some((room) => room.roomId === payload.newMessage.roomId);
         })),
