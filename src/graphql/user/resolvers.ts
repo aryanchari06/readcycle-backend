@@ -38,9 +38,9 @@ const resolverQueries = {
     // console.log(token);
 
     res.cookie("token", token, {
-      httpOnly: false, // Prevent access from JavaScript
-      secure: false, // Use HTTPS in production
-      sameSite: "strict", // CSRF protection
+      httpOnly: true, // Prevent access from JavaScript
+      secure: true, // Use HTTPS in production
+      sameSite: "none", // CSRF protection
       maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
     });
 
