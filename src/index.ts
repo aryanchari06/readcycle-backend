@@ -19,7 +19,7 @@ async function init() {
 
   app.use(
     cors({
-      origin: "http://localhost:3000", // Allow requests from your frontend
+      origin: process.env.FRONTEND_URL, // Allow requests from your frontend
       credentials: true, // Allow cookies if needed
     })
   );
